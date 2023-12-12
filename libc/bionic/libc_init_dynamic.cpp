@@ -87,6 +87,9 @@ static void init_prog_id(libc_globals* globals) {
   if (IS("/vendor/bin/xtra-daemon")) {
     prog_id = PROG_XTRA_DAEMON;
   }
+  else if (IS("/system/bin/surfaceflinger")) {
+    prog_id = PROG_SURFACEFLINGER;
+  }
 
 #undef IS
 
