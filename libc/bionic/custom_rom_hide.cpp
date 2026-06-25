@@ -30,7 +30,6 @@
 #include <sys/statfs.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <private/android_filesystem_config.h>
 
@@ -199,31 +198,18 @@ static bool compute_app_process() {
     return true;
 }
 
-static _Atomic(unsigned) g_app_cache_generation = 0;
-
-static void custom_rom_hide_fork_child() {
-    atomic_fetch_add_explicit(&g_app_cache_generation, 1u, memory_order_release);
-}
-
-static void custom_rom_hide_register_atfork() {
-    pthread_atfork(nullptr, nullptr, custom_rom_hide_fork_child);
-}
-
 static bool is_app_process() {
-    static pthread_once_t once = PTHREAD_ONCE_INIT;
-    static _Atomic(unsigned) cached_generation = static_cast<unsigned>(-1);
+    static _Atomic(pid_t) cached_pid = -1;
     static _Atomic(bool) cached_value = false;
 
-    pthread_once(&once, custom_rom_hide_register_atfork);
-
-    unsigned generation = atomic_load_explicit(&g_app_cache_generation, memory_order_acquire);
-    if (atomic_load_explicit(&cached_generation, memory_order_acquire) == generation) {
+    pid_t cur = getpid();
+    if (atomic_load_explicit(&cached_pid, memory_order_acquire) == cur) {
         return atomic_load_explicit(&cached_value, memory_order_acquire);
     }
 
     bool result = compute_app_process();
     atomic_store_explicit(&cached_value, result, memory_order_release);
-    atomic_store_explicit(&cached_generation, generation, memory_order_release);
+    atomic_store_explicit(&cached_pid, cur, memory_order_release);
     return result;
 }
 
