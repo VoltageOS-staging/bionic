@@ -620,34 +620,101 @@ int custom_rom_hide_filter_proc(const char* path) {
     return mem_fd;
 }
 
-static const char* const kSepolicyFilterPaths[] = {
-    "/system/etc/selinux/plat_service_contexts", "/system/etc/selinux/plat_seapp_contexts",
-    "/system/etc/selinux/plat_file_contexts", "/system/etc/selinux/plat_property_contexts",
-    "/system/etc/selinux/plat_sepolicy.cil", "/system_ext/etc/selinux/system_ext_service_contexts",
-    "/system_ext/etc/selinux/system_ext_seapp_contexts", "/system_ext/etc/selinux/system_ext_file_contexts",
-    "/system_ext/etc/selinux/system_ext_property_contexts", "/system_ext/etc/selinux/system_ext_sepolicy.cil",
-    "/product/etc/selinux/product_service_contexts", "/product/etc/selinux/product_seapp_contexts",
-    "/product/etc/selinux/product_file_contexts", "/product/etc/selinux/product_property_contexts",
-    "/vendor/etc/selinux/vendor_file_contexts", "/vendor/etc/selinux/vendor_service_contexts",
-    "/vendor/etc/selinux/vendor_hwservice_contexts", "/vendor/etc/selinux/vendor_property_contexts",
-    "/vendor/etc/selinux/vendor_sepolicy.cil", "/vendor/etc/selinux/plat_pub_versioned.cil", nullptr
+static const PrefixEntry kSepolicyRuntimeDirs[] = {
+    PE("/system/etc/selinux/"),
+    PE("/system_ext/etc/selinux/"), PE("/system/system_ext/etc/selinux/"),
+    PE("/product/etc/selinux/"), PE("/system/product/etc/selinux/"),
+    PE("/vendor/etc/selinux/"), PE("/system/vendor/etc/selinux/"),
+    PE("/odm/etc/selinux/"), PE("/vendor/odm/etc/selinux/"),
+    { nullptr, 0 }
 };
 
-int custom_rom_hide_filter_sepolicy(const char* path) {
-    if (!path) return -1;
-    if (!is_app_process()) return -1;
+static bool ends_with(const char* str, const char* suffix) {
+    size_t str_len = strlen(str);
+    size_t suffix_len = strlen(suffix);
+    return str_len >= suffix_len && strcmp(str + str_len - suffix_len, suffix) == 0;
+}
+
+static bool is_sepolicy_runtime_input(const char* path) {
+    if (!path || path[0] != '/') return false;
+
+    bool in_sepolicy_dir = false;
+    for (const PrefixEntry* dir = kSepolicyRuntimeDirs; dir->str; ++dir) {
+        if (strncmp(path, dir->str, dir->len) == 0) {
+            in_sepolicy_dir = true;
+            break;
+        }
+    }
+    if (!in_sepolicy_dir) return false;
+
+    const char* base = path_basename(path);
+    return ends_with(base, ".cil") || ends_with(base, "_contexts") ||
+           ends_with(base, "mac_permissions.xml");
+}
+
+struct RedactionRule {
+    const char* needle;
+    const char* replacement;
+};
+
+static const RedactionRule kSepolicyRedactions[] = {
+    { "LineageOS", "Aosp_____" }, { "lineageos", "aosp_____" },
+    { "VoltageOS", "Aosp_____" }, { "voltageos", "aosp_____" },
+    { "Lineage", "Aosp___" }, { "lineage", "aosp___" },
+    { "Voltage", "Aosp___" }, { "voltage", "aosp___" },
+    { nullptr, nullptr }
+};
+
+static void redact_all(char* text, const char* needle, const char* replacement) {
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0 || needle_len != strlen(replacement)) return;
+
+    for (char* hit = text; (hit = strstr(hit, needle)) != nullptr;) {
+        memcpy(hit, replacement, needle_len);
+        hit += needle_len;
+    }
+}
+
+static void write_redacted_sepolicy_line(int mem_fd, char* line, size_t line_len, void*) {
+    for (const RedactionRule* rule = kSepolicyRedactions; rule->needle; ++rule) {
+        redact_all(line, rule->needle, rule->replacement);
+    }
+    raw_write(mem_fd, line, line_len);
+}
+
+static int filter_sepolicy_path(const char* path, int flags) {
     if (!path || reinterpret_cast<uintptr_t>(path) < 0x1000000) return -1;
+    if (!is_sepolicy_runtime_input(path)) return -1;
+    if ((flags & O_ACCMODE) != O_RDONLY || (flags & (O_DIRECTORY | O_PATH)) != 0) return -1;
+
+    return filter_file_with(path, nullptr, write_redacted_sepolicy_line, nullptr);
+}
+
+int custom_rom_hide_filter_sepolicy(const char* path, int flags) {
+    if (!is_app_process()) return -1;
+    int saved_errno = errno;
+    int mem_fd = filter_sepolicy_path(path, flags);
+    errno = saved_errno;
+    return mem_fd;
+}
+
+int custom_rom_hide_filter_sepolicy_at(int dirfd, const char* path, int flags) {
+    if (!is_app_process() || !path || reinterpret_cast<uintptr_t>(path) < 0x1000000) return -1;
 
     int saved_errno = errno;
-    bool match = false;
-    for (const char* const* p = kSepolicyFilterPaths; *p; ++p) {
-        if (strcmp(path, *p) == 0) { match = true; break; }
+    int mem_fd = -1;
+    if (path[0] == '/') {
+        mem_fd = filter_sepolicy_path(path, flags);
+    } else if (dirfd != AT_FDCWD) {
+        char dir_path[256];
+        if (resolve_fd_path(dirfd, dir_path, sizeof(dir_path))) {
+            char full_path[512];
+            int written = snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, path);
+            if (written > 0 && static_cast<size_t>(written) < sizeof(full_path)) {
+                mem_fd = filter_sepolicy_path(full_path, flags);
+            }
+        }
     }
-    if (!match) { errno = saved_errno; return -1; }
-
-    int mem_fd = filter_file_with(path, [](const char* line, void*) {
-        return strstr(line, "lineage") != nullptr;
-    }, write_line_raw, nullptr);
     errno = saved_errno;
     return mem_fd;
 }

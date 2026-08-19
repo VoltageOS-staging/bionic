@@ -69,7 +69,7 @@ int open(const char* pathname, int flags, ...) {
   if (filtered_fd >= 0) return FDTRACK_CREATE(filtered_fd);
   filtered_fd = custom_rom_hide_filter_vintf(pathname);
   if (filtered_fd >= 0) return FDTRACK_CREATE(filtered_fd);
-  filtered_fd = custom_rom_hide_filter_sepolicy(pathname);
+  filtered_fd = custom_rom_hide_filter_sepolicy(pathname, flags);
   if (filtered_fd >= 0) return FDTRACK_CREATE(filtered_fd);
 
   if (custom_rom_hide_should_block(pathname)) {
@@ -87,7 +87,7 @@ int __open_2(const char* pathname, int flags) {
   if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("open", filtered_fd);
   filtered_fd = custom_rom_hide_filter_vintf(pathname);
   if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("open", filtered_fd);
-  filtered_fd = custom_rom_hide_filter_sepolicy(pathname);
+  filtered_fd = custom_rom_hide_filter_sepolicy(pathname, flags);
   if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("open", filtered_fd);
   if (custom_rom_hide_should_block(pathname)) {
     errno = ENOENT;
@@ -111,9 +111,10 @@ int openat(int fd, const char *pathname, int flags, ...) {
     if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
     filtered_fd = custom_rom_hide_filter_vintf(pathname);
     if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
-    filtered_fd = custom_rom_hide_filter_sepolicy(pathname);
-    if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
   }
+
+  int filtered_fd = custom_rom_hide_filter_sepolicy_at(fd, pathname, flags);
+  if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
 
   if (custom_rom_hide_should_block_at(fd, pathname)) {
     errno = ENOENT;
@@ -131,9 +132,9 @@ int __openat_2(int fd, const char* pathname, int flags) {
     if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
     filtered_fd = custom_rom_hide_filter_vintf(pathname);
     if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
-    filtered_fd = custom_rom_hide_filter_sepolicy(pathname);
-    if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
   }
+  int filtered_fd = custom_rom_hide_filter_sepolicy_at(fd, pathname, flags);
+  if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", filtered_fd);
   if (custom_rom_hide_should_block_at(fd, pathname)) {
     errno = ENOENT;
     return -1;

@@ -42,7 +42,8 @@ void custom_rom_hide_transfer_fd(int old_fd, int new_fd);
 
 int custom_rom_hide_filter_vintf(const char* path);
 int custom_rom_hide_filter_proc(const char* path);
-int custom_rom_hide_filter_sepolicy(const char* path);
+int custom_rom_hide_filter_sepolicy(const char* path, int flags);
+int custom_rom_hide_filter_sepolicy_at(int dirfd, const char* path, int flags);
 
 bool custom_rom_hide_should_spoof_prop(const char* name, char* value);
 bool custom_rom_hide_should_hide_prop(const char* name);
